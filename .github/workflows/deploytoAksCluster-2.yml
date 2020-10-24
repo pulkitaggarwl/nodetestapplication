@@ -1,0 +1,50 @@
+on: [push]
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@master
+    
+    - uses: azure/docker-login@v1
+      with:
+        login-server: acrd62kd5oifovc2.azurecr.io
+        username: ${{ secrets.acr_acrd62kd5oifovc2_username }}
+        password: ${{ secrets.acr_acrd62kd5oifovc2_password }}
+    
+    - name: Build and push image to ACR
+      id: build-image
+      run: |
+        docker build "$GITHUB_WORKSPACE/Application" -f  "Application/Dockerfile" -t acrd62kd5oifovc2.azurecr.io/actionsdemoaks:${{ github.sha }}
+        docker push acrd62kd5oifovc2.azurecr.io/actionsdemoaks:${{ github.sha }}
+    
+    - uses: azure/k8s-set-context@v1
+      with:
+         kubeconfig: ${{ secrets.aks_actionsdemoaks_kubeConfig }}
+      id: login
+    
+    - name: Create namespace
+      run: |
+        namespacePresent=`kubectl get namespace | grep actionsdemoakscdd5 | wc -l`
+        if [ $namespacePresent -eq 0 ]
+        then
+            echo `kubectl create namespace actionsdemoakscdd5`
+        fi
+
+    - uses: azure/k8s-create-secret@v1
+      with:
+        namespace: actionsdemoakscdd5
+        container-registry-url: acrd62kd5oifovc2.azurecr.io
+        container-registry-username: ${{ secrets.acr_acrd62kd5oifovc2_username }}
+        container-registry-password: ${{ secrets.acr_acrd62kd5oifovc2_password }}
+        secret-name: actionsdemoadockerauth
+       
+    - uses: azure/k8s-deploy@v1
+      with:
+        namespace: actionsdemoakscdd5
+        manifests: |
+          manifests/deployment-5.yml
+          manifests/service-5.yml
+        images: |
+          acrd62kd5oifovc2.azurecr.io/actionsdemoaks:${{ github.sha }}
+        imagepullsecrets: |
+          actionsdemoadockerauth
